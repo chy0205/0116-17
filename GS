@@ -75,6 +75,37 @@ function JSONResponse(data) {
 }
 
 // ==========================================
+// 0. 快取輔助模組 (CacheService)
+// ==========================================
+
+function getFromCache(key) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const data = cache.get(key);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function putInCache(key, data, seconds) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const str = JSON.stringify(data);
+    if (str.length < 100000) {
+      cache.put(key, str, seconds || 21600); // 預設快取 6 小時
+    }
+  } catch (e) {}
+}
+
+function removeFromCache(key) {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove(key);
+  } catch (e) {}
+}
+
+// ==========================================
 // 1. 系統輔助功能 (日誌)
 // ==========================================
 
@@ -105,6 +136,9 @@ function logAction(user, group, action, detail, operator) {
 // ==========================================
 
 function getTeamsData() {
+  const cached = getFromCache("teams_data");
+  if (cached) return { success: true, data: cached };
+
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sheet = ss.getSheetByName('Users');
@@ -122,6 +156,7 @@ function getTeamsData() {
         if (teams[group].indexOf(name) === -1) teams[group].push(name);
       }
     }
+    putInCache("teams_data", teams, 21600); // 快取 6 小時
     return { success: true, data: teams };
   } catch (e) {
     return { success: false, error: e.toString() };
@@ -138,6 +173,7 @@ function handleRegister(data) {
       sheet.getRange(i + 1, 3).setValue(data.password.toString());
       sheet.getRange(i + 1, 5).setValue(new Date()); 
       logAction(data.name, data.group, "註冊", "使用者完成初始註冊", data.name);
+      removeFromCache("teams_data"); // 更新名單快取
       return { success: true };
     }
   }
@@ -379,6 +415,9 @@ function getBonusStats(targetSheetName) {
 // ==========================================
 
 function getHomeworkConfig() {
+  const cached = getFromCache("hw_config");
+  if (cached) return { success: true, data: cached };
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('HomeworkSettings') || ss.insertSheet('HomeworkSettings');
   if (sheet.getLastRow() === 0) {
@@ -409,6 +448,8 @@ function getHomeworkConfig() {
       maxFiles: (row[4] !== undefined && row[4] !== "") ? parseInt(row[4]) : 1
     };
   }).filter(c => c.topic !== "");
+  
+  putInCache("hw_config", config, 21600); // 快取 6 小時
   return { success: true, data: config };
 }
 
@@ -423,6 +464,7 @@ function handleUpdateHomeworkSettings(configStr) {
     const maxFiles = cfg.maxFiles !== undefined ? parseInt(cfg.maxFiles) : 1;
     sheet.appendRow([cfg.topic, cfg.minChars, JSON.stringify(cfg.questions || []), cfg.showReflection ? 'Y' : 'N', maxFiles]);
   });
+  removeFromCache("hw_config"); // 清除快取
   return { success: true };
 }
 
@@ -576,11 +618,15 @@ function getHistory(group, name) {
 // ==========================================
 
 function handleGetConfig() {
+  const cached = getFromCache("sys_config");
+  if (cached) return cached;
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Config') || ss.insertSheet('Config');
   const data = sheet.getDataRange().getValues();
   const config = {};
   data.slice(1).forEach(r => { if(r[0]) config[r[0].toString().trim()] = { start: r[1] instanceof Date ? Utilities.formatDate(r[1], "GMT+8", "yyyy-MM-dd HH:mm") : r[1].toString(), end: r[2] ? (r[2] instanceof Date ? Utilities.formatDate(r[2], "GMT+8", "yyyy-MM-dd HH:mm") : r[2].toString()) : "" }; });
+  putInCache("sys_config", config, 600); // 快取 10 分鐘
   return config;
 }
 
@@ -594,14 +640,20 @@ function handleUpdateConfig(configStr) {
     for(let i=1; i<data.length; i++) { if(data[i][0] == key) { sheet.getRange(i+1, 2, 1, 2).setValues([[updates[key].start, updates[key].end || ""]]); found = true; break; } }
     if(!found) sheet.appendRow([key, updates[key].start, updates[key].end || ""]);
   }
+  removeFromCache("sys_config"); // 清除快取
   return { success: true };
 }
 
 function getAnnouncements() {
+  const cached = getFromCache("announcements_data");
+  if (cached) return { success: true, data: cached };
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Bulletin') || ss.insertSheet('Bulletin');
   const data = sheet.getDataRange().getValues();
-  return { success: true, data: data.slice(1).map((r, i) => ({ id: i+2, time: r[0] instanceof Date ? Utilities.formatDate(r[0], "GMT+8", "yyyy/MM/dd HH:mm") : r[0].toString(), title: r[1], content: r[2], link: r[3], visible: r[4] || 'Y' })).reverse() };
+  const list = data.slice(1).map((r, i) => ({ id: i+2, time: r[0] instanceof Date ? Utilities.formatDate(r[0], "GMT+8", "yyyy/MM/dd HH:mm") : r[0].toString(), title: r[1], content: r[2], link: r[3], visible: r[4] || 'Y' })).reverse();
+  putInCache("announcements_data", list, 600); // 快取 10 分鐘
+  return { success: true, data: list };
 }
 
 function updateAnnouncement(p) {
@@ -609,15 +661,21 @@ function updateAnnouncement(p) {
   const sheet = ss.getSheetByName('Bulletin');
   const vals = [[new Date(), p.title, p.content, p.link, p.visible]];
   if (p.id) sheet.getRange(parseInt(p.id), 1, 1, 5).setValues(vals); else sheet.appendRow(vals[0]);
+  removeFromCache("announcements_data"); // 清除快取
   return { success: true };
 }
 
 function getLocationsData() {
+  const cached = getFromCache("locations_data");
+  if (cached) return { success: true, data: cached };
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Locations') || ss.insertSheet('Locations');
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return { success: true, data: [{ name: "中心地點", lat: 24.13388, lng: 120.71792, radius: 500 }] };
-  return { success: true, data: data.slice(1).map(row => ({ name: row[0].toString(), lat: parseFloat(row[1]), lng: parseFloat(row[2]), radius: parseFloat(row[3]) || 500 })).filter(loc => !isNaN(loc.lat)) };
+  const locs = data.slice(1).map(row => ({ name: row[0].toString(), lat: parseFloat(row[1]), lng: parseFloat(row[2]), radius: parseFloat(row[3]) || 500 })).filter(loc => !isNaN(loc.lat));
+  putInCache("locations_data", locs, 21600); // 快取 6 小時
+  return { success: true, data: locs };
 }
 
 // ==========================================

@@ -5,13 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>崇華十七期整合管理系統</title>
+    <!-- 預先連線以加速 Google Fonts 載入 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+    <!-- Tailwind Play CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js 改為 defer 非阻塞載入 -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Inter:wght@400;600;800&display=swap');
-
         :root {
             --emerald-primary: #10b981;
             --emerald-dark: #059669;
@@ -1091,6 +1093,17 @@
         let uploadedUrls = [];
 
         // --- 核心工具 ---
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                if (document.querySelector(`script[src="${src}"]`)) return resolve();
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+
         function parseToTaipeiDate(val) {
             if (!val) return null;
             let str = val.toString().trim();
@@ -1210,17 +1223,24 @@
             });
         }
 
-        async function fetchLocationData() {
+        async function fetchLocationData(force = false) {
+            const cached = localStorage.getItem('sh_locations');
+            if (cached && !force) {
+                try { checkinZones = JSON.parse(cached); } catch (e) {}
+            }
             try {
                 const res = await fetch(`${APPS_SCRIPT_URL}?action=getLocations`);
                 const r = await res.json();
                 if (r.success) {
                     checkinZones = r.data;
-                } else {
+                    localStorage.setItem('sh_locations', JSON.stringify(r.data));
+                } else if (!checkinZones.length) {
                     throw new Error(r.error);
                 }
             } catch (e) {
-                checkinZones = [{ name: "預設地點", lat: 24.13388, lng: 120.71792, radius: 500 }];
+                if (!checkinZones.length) {
+                    checkinZones = [{ name: "預設地點", lat: 24.13388, lng: 120.71792, radius: 500 }];
+                }
             }
         }
 
@@ -1288,6 +1308,7 @@
             if (viewName === 'questions' && currentUser) loadQuestionsView();
             if (viewName === 'img-transfer') setupImgTransfer();
             if (viewName === 'homework') {
+                if (!cachedHomeworkConfig || cachedHomeworkConfig.length === 0) fetchHomeworkConfig();
                 document.getElementById('homework-reflection').value = "";
                 document.getElementById('homework-url').value = "";
                 onHomeworkTopicChange();
@@ -1296,33 +1317,49 @@
             window.scrollTo(0, 0);
         }
 
-        async function fetchTeamsData() {
+        function renderTeamsDropdown() {
+            const groups = Object.keys(teamsData).sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b));
+            ['login-group', 'reg-group'].forEach(id => {
+                const s = document.getElementById(id);
+                if (!s) return;
+                const currentVal = s.value;
+                s.innerHTML = '<option value="" disabled selected>請選擇組別</option>';
+                groups.forEach(g => s.add(new Option(g, g)));
+                if (currentVal) s.value = currentVal;
+                s.onchange = (e) => {
+                    const ns = id === 'login-group' ? document.getElementById('login-name') : document.getElementById('reg-name');
+                    ns.innerHTML = '<option value="" disabled selected>姓名</option>';
+                    (teamsData[e.target.value] || []).sort().forEach(n => ns.add(new Option(n, n)));
+                    ns.disabled = false;
+                };
+            });
+        }
+
+        async function fetchTeamsData(force = false) {
+            const cached = localStorage.getItem('sh_teams_data');
+            if (cached && !force) {
+                try {
+                    teamsData = JSON.parse(cached);
+                    renderTeamsDropdown();
+                } catch (e) {}
+            }
             try {
-                // 改為透過 GAS 後端獲取資料，不再依賴 GID
+                // 透過 GAS 後端獲取資料
                 const res = await fetch(`${APPS_SCRIPT_URL}?action=getTeamsData`);
                 const r = await res.json();
                 if (r.success) {
                     teamsData = r.data;
-                    const groups = Object.keys(teamsData).sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b));
-                    ['login-group', 'reg-group'].forEach(id => {
-                        const s = document.getElementById(id);
-                        if (!s) return;
-                        s.innerHTML = '<option value="" disabled selected>請選擇組別</option>';
-                        groups.forEach(g => s.add(new Option(g, g)));
-                        s.onchange = (e) => {
-                            const ns = id === 'login-group' ? document.getElementById('login-name') : document.getElementById('reg-name');
-                            ns.innerHTML = '<option value="" disabled selected>姓名</option>';
-                            (teamsData[e.target.value] || []).sort().forEach(n => ns.add(new Option(n, n)));
-                            ns.disabled = false;
-                        };
-                    });
-                } else {
+                    localStorage.setItem('sh_teams_data', JSON.stringify(r.data));
+                    renderTeamsDropdown();
+                } else if (!Object.keys(teamsData).length) {
                     console.error("Fetch Teams Data Error:", r.error);
                     toast("無法取得組別資料，請確認後端已更新。", true);
                 }
             } catch (e) {
-                console.error("Fetch Teams Data Error:", e);
-                toast("連線異常，請確認網路或後端部署。", true);
+                if (!Object.keys(teamsData).length) {
+                    console.error("Fetch Teams Data Error:", e);
+                    toast("連線異常，請確認網路或後端部署。", true);
+                }
             }
         }
 
@@ -1356,17 +1393,31 @@
             try {
                 const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'register', group: g, name: n, password: p }) });
                 const result = await res.json();
-                if (result.success) { toast('註冊成功，請登入'); switchView('login'); }
+                if (result.success) { 
+                    toast('註冊成功，請登入'); 
+                    fetchTeamsData(true);
+                    switchView('login'); 
+                }
                 else toast(result.error || '註冊失敗', true);
             } catch (e) { toast('連線失敗', true); } finally { btn.disabled = false; }
         }
 
         async function loadAnnouncements() {
+            const cached = localStorage.getItem('sh_announcements');
+            if (cached) {
+                try {
+                    cachedAnnouncements = JSON.parse(cached);
+                    renderAnnouncements();
+                } catch (e) {}
+            }
             try {
                 const res = await fetch(`${APPS_SCRIPT_URL}?action=getAnnouncements`);
                 const r = await res.json();
-                cachedAnnouncements = r.data || [];
-                renderAnnouncements();
+                if (r.data) {
+                    cachedAnnouncements = r.data || [];
+                    localStorage.setItem('sh_announcements', JSON.stringify(cachedAnnouncements));
+                    renderAnnouncements();
+                }
             } catch (e) { }
         }
 
@@ -1518,6 +1569,15 @@
 
                 if (isAdminOrTeacher) {
                     filterContainer.classList.remove('hidden');
+                    if (Object.keys(teamsData).length === 0) {
+                        const cachedT = localStorage.getItem('sh_teams_data');
+                        if (cachedT) {
+                            try { teamsData = JSON.parse(cachedT); } catch (e) {}
+                        }
+                        if (Object.keys(teamsData).length === 0) {
+                            await fetchTeamsData();
+                        }
+                    }
                     if (filterSelect.options.length === 0) {
                         filterSelect.innerHTML = '<option value="" disabled selected>🔍 請選擇組別查看點名報告</option>';
                         filterSelect.add(new Option("🌟 查看所有組別 (所有成員)", "ALL"));
@@ -1681,6 +1741,10 @@
                         }
                     } else {
                         select.classList.add('hidden');
+                    }
+
+                    if (typeof Chart === 'undefined') {
+                        await loadScript('https://cdn.jsdelivr.net/npm/chart.js');
                     }
 
                     const ctx = canvas.getContext('2d');
@@ -2038,17 +2102,38 @@
             } catch (e) { toast("設定同步失敗", true); } finally { btn.disabled = false; }
         }
 
-        async function fetchHomeworkConfig() {
+        async function fetchHomeworkConfig(force = false) {
             const select = document.getElementById('homework-topic');
+            const cached = localStorage.getItem('sh_hw_config');
+            if (cached && !force) {
+                try {
+                    cachedHomeworkConfig = JSON.parse(cached);
+                    if (select) {
+                        select.innerHTML = '<option value="" disabled selected>請選擇作業主題</option>';
+                        cachedHomeworkConfig.forEach(cfg => select.add(new Option(cfg.topic, cfg.topic)));
+                    }
+                } catch (e) {}
+            }
             try {
                 const res = await fetch(`${APPS_SCRIPT_URL}?action=getHomeworkConfig`);
                 const r = await res.json();
                 if (r.success) {
                     cachedHomeworkConfig = r.data;
-                    select.innerHTML = '<option value="" disabled selected>請選擇作業主題</option>';
-                    cachedHomeworkConfig.forEach(cfg => select.add(new Option(cfg.topic, cfg.topic)));
-                } else select.innerHTML = '<option value="" disabled selected>載入失敗</option>';
-            } catch (e) { select.innerHTML = '<option value="" disabled selected>連線異常</option>'; }
+                    localStorage.setItem('sh_hw_config', JSON.stringify(r.data));
+                    if (select) {
+                        const currentVal = select.value;
+                        select.innerHTML = '<option value="" disabled selected>請選擇作業主題</option>';
+                        cachedHomeworkConfig.forEach(cfg => select.add(new Option(cfg.topic, cfg.topic)));
+                        if (currentVal) select.value = currentVal;
+                    }
+                } else if (!cachedHomeworkConfig.length && select) {
+                    select.innerHTML = '<option value="" disabled selected>載入失敗</option>';
+                }
+            } catch (e) {
+                if (!cachedHomeworkConfig.length && select) {
+                    select.innerHTML = '<option value="" disabled selected>連線異常</option>';
+                }
+            }
         }
 
         function onHomeworkTopicChange() {
@@ -2795,8 +2880,14 @@
             const el = document.getElementById('region-report-content');
             if (el.innerText.includes('載入資料中') || el.innerText.includes('目前無區域資料')) return toast('沒有資料可供下載', true);
             
-            toast('正在產生檔案，請稍候...');
+            toast('正在載入套件並產生檔案，請稍候...');
             try {
+                // 動態載入 html2canvas 與 jsPDF，節省首頁開啟流量
+                await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+                if (format === 'pdf') {
+                    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+                }
+
                 const originalOverflow = el.style.overflow;
                 const originalMaxHeight = el.style.maxHeight;
                 el.style.overflow = 'visible';
@@ -2830,12 +2921,14 @@
         }
 
         function initApp() {
-            fetchTeamsData(); fetchLocationData(); fetchHomeworkConfig();
             const saved = localStorage.getItem('sh_user_secure');
             if (saved && saved !== "undefined") {
                 try {
-                    currentUser = JSON.parse(saved); document.getElementById('main-nav').classList.remove('hidden');
-                    const ud = document.getElementById('user-display'); ud.classList.remove('hidden'); ud.classList.add('flex');
+                    currentUser = JSON.parse(saved); 
+                    document.getElementById('main-nav').classList.remove('hidden');
+                    const ud = document.getElementById('user-display'); 
+                    ud.classList.remove('hidden'); 
+                    ud.classList.add('flex');
                     document.getElementById('display-name').innerText = currentUser.name;
                     document.getElementById('display-role').innerText = currentUser.role || '學員';
                     const r = (currentUser.role || '').toUpperCase();
@@ -2846,10 +2939,19 @@
                         document.getElementById('nav-img-transfer').classList.remove('hidden'); 
                         document.getElementById('admin-region-report-btn')?.classList.remove('hidden');
                     }
-                    else if (r.includes('發布員')) { document.getElementById('add-announcement-btn')?.classList.remove('hidden'); document.getElementById('nav-img-transfer').classList.remove('hidden'); }
+                    else if (r.includes('發布員')) { 
+                        document.getElementById('add-announcement-btn')?.classList.remove('hidden'); 
+                        document.getElementById('nav-img-transfer').classList.remove('hidden'); 
+                    }
                     switchView('bulletin');
-                } catch (e) { switchView('login'); }
-            } else switchView('login');
+                } catch (e) { 
+                    fetchTeamsData();
+                    switchView('login'); 
+                }
+            } else {
+                fetchTeamsData();
+                switchView('login');
+            }
         }
 
         function logout() { if (confirm("確定登出？")) { localStorage.removeItem('sh_user_secure'); location.reload(); } }
