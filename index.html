@@ -1630,7 +1630,9 @@
                 }
 
                 members.sort().forEach(name => {
-                    const sign = cachedSignedUsers.slice().reverse().find(s => s.group === gn && s.name === name);
+                    const cleanName = (name || '').toString().trim();
+                    const cleanGroup = (gn || '').toString().trim();
+                    const sign = cachedSignedUsers.slice().reverse().find(s => (s.group || '').toString().trim() === cleanGroup && (s.name || '').toString().trim() === cleanName);
                     let dot = 'dot-missing', tCol = 'text-slate-300', txt = ''; // 預設未簽到不顯示文字
                     if (sign && sign.time) {
                         const n = sign.note || '';
@@ -1639,23 +1641,26 @@
                         else if (n.includes('假')) { dot = 'dot-leave'; tCol = 'text-orange-500'; txt = `📋 ${n}`; }
                         else { dot = 'dot-signed'; tCol = 'text-emerald-600'; txt = `✅ ${sign.time}`; }
                     }
+                    const pts = (sign && sign.pts !== undefined) ? sign.pts : 0;
+                    const totalPts = (sign && sign.totalPts !== undefined) ? sign.totalPts : pts;
                     html += `
                     <div class="bg-white p-4 rounded-2xl border mb-2 flex justify-between shadow-sm items-center hover:border-emerald-200 transition-all">
                         <div class="flex items-center">
                             <span class="status-dot ${dot}"></span>
                             <div class="flex flex-col">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-bold text-slate-700">${name}</span>
+                                    <span class="font-bold text-slate-700">${cleanName}</span>
                                 </div>
-                                ${sign && sign.pts !== undefined ? `<span class="text-[9px] font-black text-amber-500 block">🏆 當表加分：${sign.pts}</span><span class="text-[9px] font-black text-amber-600 block">🌟 全期總共：${sign.totalPts !== undefined ? sign.totalPts : sign.pts}</span>` : ''}
+                                <span class="text-[9px] font-black text-amber-500 block">🏆 當表加分：${pts}</span>
+                                <span class="text-[9px] font-black text-amber-600 block">🌟 全期總共：${totalPts}</span>
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="${tCol} text-[11px] font-black tracking-tighter mr-2">${txt}</span>
-                            <button onclick="openBonusModal('${gn}', '${name}')" class="p-2 text-amber-400 hover:text-amber-600 transition-colors">
+                            <button onclick="openBonusModal('${cleanGroup}', '${cleanName}')" class="p-2 text-amber-400 hover:text-amber-600 transition-colors">
                                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
                             </button>
-                            <button onclick="openProxyModal('${gn}', '${name}')" class="p-2 text-slate-300 hover:text-emerald-600 transition-colors">
+                            <button onclick="openProxyModal('${cleanGroup}', '${cleanName}')" class="p-2 text-slate-300 hover:text-emerald-600 transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                             </button>
                         </div>
@@ -1895,26 +1900,28 @@
             const targetGroups = (gVal === 'ALL' ? Object.keys(teamsData).sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b)) : [gVal]);
 
             targetGroups.forEach(gn => {
-                const members = teamsData[gn] || [];
-                const submissionsInGroup = cachedHomeworkSubmissions.filter(s => s.group === gn);
+                const cleanGn = (gn || '').toString().trim();
+                const submissionsInGroup = cachedHomeworkSubmissions.filter(s => (s.group || '').toString().trim() === cleanGn);
 
                 // 將繳交紀錄按姓名分組
                 const submissionGroups = {};
                 submissionsInGroup.forEach(s => {
-                    if (!submissionGroups[s.name]) submissionGroups[s.name] = [];
-                    submissionGroups[s.name].push(s);
+                    const cleanSName = (s.name || '').toString().trim();
+                    if (!submissionGroups[cleanSName]) submissionGroups[cleanSName] = [];
+                    submissionGroups[cleanSName].push(s);
                 });
 
-                html += `<div class="text-[10px] font-black text-indigo-400 mt-6 px-2 border-l-4 border-indigo-500 ml-1 mb-3 uppercase tracking-widest">${gn} - 統計報告</div>`;
+                html += `<div class="text-[10px] font-black text-indigo-400 mt-6 px-2 border-l-4 border-indigo-500 ml-1 mb-3 uppercase tracking-widest">${cleanGn} - 統計報告</div>`;
 
                 // 遍歷所有組員，區分已繳交與未繳交
                 members.sort().forEach(name => {
-                    const userSubmissions = submissionGroups[name] || [];
+                    const cleanName = (name || '').toString().trim();
+                    const userSubmissions = submissionGroups[cleanName] || [];
                     if (userSubmissions.length > 0) {
                         // 已繳交：顯示一張卡片與繳交次數
                         const lastSub = userSubmissions[userSubmissions.length - 1]; // 取得最後一筆
                         html += `
-                        <div class="bg-white p-4 rounded-2xl border border-emerald-100 mb-2 shadow-sm submitted-card flex justify-between items-center hover:border-emerald-300 transition-all cursor-pointer" onclick="viewMemberHomework('${gn}', '${name}')">
+                        <div class="bg-white p-4 rounded-2xl border border-emerald-100 mb-2 shadow-sm submitted-card flex justify-between items-center hover:border-emerald-300 transition-all cursor-pointer" onclick="viewMemberHomework('${cleanGn}', '${cleanName}')">
                             <div class="flex items-center gap-3">
                                 <div class="flex flex-col">
                                     <div class="flex items-center gap-2 mb-1">

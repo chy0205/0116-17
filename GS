@@ -230,14 +230,21 @@ function getAttendanceReport(role, userGroup, bonusSheetName) {
     const attendanceSheet = ss.getSheetByName('簽到' + todayStr);
     const userSheet = ss.getSheetByName('Users');
     
-    // 1. 獲取所有使用者 (過濾名單)
+    // 1. 獲取所有使用者 (過濾名單，徹底去除前後空格與大小寫容錯)
+    const safeRole = (role || '').toString().toUpperCase();
+    const safeUserGroup = (userGroup || '').toString().trim();
+    const isFullAccess = safeRole.includes('ADMIN') || safeRole.includes('TEACHER') || safeRole.includes('管理員') || safeRole.includes('老師');
+
     const allUsers = userSheet.getDataRange().getValues().slice(1)
+      .map(u => ({
+        group: u[0] ? u[0].toString().trim() : "",
+        name: u[1] ? u[1].toString().trim() : ""
+      }))
       .filter(u => {
-        const uGroup = u[0];
-        const safeRole = role || '';
-        if (safeRole.includes('Admin') || safeRole.includes('Teacher')) return true;
-        return uGroup == userGroup;
-      }).map(u => ({ group: u[0], name: u[1] }));
+        if (!u.group || !u.name || u.group === "組別") return false;
+        if (isFullAccess) return true;
+        return u.group === safeUserGroup;
+      });
 
     // 2. 獲取今日簽到紀錄
     const attendanceMap = {};
@@ -248,7 +255,10 @@ function getAttendanceReport(role, userGroup, bonusSheetName) {
         try {
           if (r[0]) extractedTime = Utilities.formatDate(new Date(r[0]), "GMT+8", "HH:mm");
         } catch (e) {}
-        attendanceMap[r[2]] = { time: extractedTime || "", note: r[3] || "" };
+        const aName = r[2] ? r[2].toString().trim() : "";
+        if (aName) {
+          attendanceMap[aName] = { time: extractedTime || "", note: r[3] ? r[3].toString().trim() : "" };
+        }
       });
     }
 
@@ -266,7 +276,7 @@ function getAttendanceReport(role, userGroup, bonusSheetName) {
     allBonusSheets.forEach(s => {
       const bRows = s.getDataRange().getValues();
       for(let i=1; i<bRows.length; i++) {
-        const bName = bRows[i][2];
+        const bName = bRows[i][2] ? bRows[i][2].toString().trim() : "";
         const bPts = parseFloat(bRows[i][3] || 0);
         if (bName) {
            totalBonusMap[bName] = (totalBonusMap[bName] || 0) + bPts;
@@ -282,7 +292,7 @@ function getAttendanceReport(role, userGroup, bonusSheetName) {
     sheets.filter(s => s.getName().startsWith("作業_")).forEach(s => {
       const hRows = s.getDataRange().getValues();
       for(let i=1; i<hRows.length; i++) {
-        const hName = hRows[i][2];
+        const hName = hRows[i][2] ? hRows[i][2].toString().trim() : "";
         if (hName) hwCountMap[hName] = (hwCountMap[hName] || 0) + 1;
       }
     });
