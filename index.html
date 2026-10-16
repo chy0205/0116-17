@@ -770,14 +770,24 @@
                 </div>
             </div>
 
-            <div class="mb-4 px-2 flex justify-between items-center">
+            <div class="mb-4 px-2 flex justify-between items-center flex-wrap gap-2">
                 <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">點名出席狀況</h3>
-                <button id="admin-region-report-btn" onclick="openRegionReportModal()"
-                    class="hidden bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    查看區域統計</button>
+                <div class="flex items-center gap-2">
+                    <button id="admin-sync-attendance-btn" onclick="syncLatestAttendance(true)"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        同步最新名單與出席
+                    </button>
+                    <button id="admin-region-report-btn" onclick="openRegionReportModal()"
+                        class="hidden bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        查看區域統計
+                    </button>
+                </div>
             </div>
             <div id="attendance-report-list" class="space-y-3 mb-10"></div>
 
@@ -1304,7 +1314,7 @@
             }
             if (viewName === 'quiz' && currentUser) loadQuizConfigs();
             if (viewName === 'results' && currentUser) loadHistoryData();
-            if (viewName === 'admin' && currentUser) loadAdminDashboard();
+            if (viewName === 'admin' && currentUser) loadAdminDashboard(true);
             if (viewName === 'questions' && currentUser) loadQuestionsView();
             if (viewName === 'img-transfer') setupImgTransfer();
             if (viewName === 'homework') {
@@ -1344,8 +1354,9 @@
                 } catch (e) {}
             }
             try {
-                // 透過 GAS 後端獲取資料
-                const res = await fetch(`${APPS_SCRIPT_URL}?action=getTeamsData`);
+                // 透過 GAS 後端獲取資料，若 force 為 true 則通知後端清除快取
+                const url = force ? `${APPS_SCRIPT_URL}?action=getTeamsData&force=1` : `${APPS_SCRIPT_URL}?action=getTeamsData`;
+                const res = await fetch(url);
                 const r = await res.json();
                 if (r.success) {
                     teamsData = r.data;
@@ -1540,15 +1551,39 @@
             } catch (e) { toast("載入題目失敗", true); }
         }
 
-        async function loadAdminDashboard() {
+        async function syncLatestAttendance(showToast = true) {
+            if (showToast) toast("正在同步試算表最新名單與出席...", false, true);
+            const btn = document.getElementById('admin-sync-attendance-btn');
+            if (btn) btn.disabled = true;
+            try {
+                await fetchTeamsData(true);
+                await loadAdminDashboard(true);
+                if (showToast) toast("名單與出席資料已同步完成！");
+            } catch (e) {
+                console.error("Sync attendance error:", e);
+                if (showToast) toast("同步失敗: " + e.message, true);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function loadAdminDashboard(force = false) {
             if (!currentUser) return;
             const r = (currentUser.role || '').toUpperCase();
             const isAdminOrTeacher = ['ADMIN', '管理員', 'TEACHER', '老師'].some(x => r.includes(x.toUpperCase()));
             const isLeader = ['LEADER', '組長'].some(x => r.includes(x.toUpperCase()));
 
             try {
+                if (force || Object.keys(teamsData).length === 0) {
+                    await fetchTeamsData(force);
+                }
+
+                const attendanceUrl = force
+                    ? `${APPS_SCRIPT_URL}?action=getAttendanceReport&role=${encodeURIComponent(currentUser.role)}&group=${encodeURIComponent(currentUser.group)}&_t=${Date.now()}`
+                    : `${APPS_SCRIPT_URL}?action=getAttendanceReport&role=${encodeURIComponent(currentUser.role)}&group=${encodeURIComponent(currentUser.group)}`;
+
                 const [attendanceRes, homeworkConfigRes] = await Promise.all([
-                    fetch(`${APPS_SCRIPT_URL}?action=getAttendanceReport&role=${encodeURIComponent(currentUser.role)}&group=${encodeURIComponent(currentUser.group)}`),
+                    fetch(attendanceUrl),
                     fetch(`${APPS_SCRIPT_URL}?action=getHomeworkConfig`)
                 ]);
 
@@ -1569,19 +1604,14 @@
 
                 if (isAdminOrTeacher) {
                     filterContainer.classList.remove('hidden');
-                    if (Object.keys(teamsData).length === 0) {
-                        const cachedT = localStorage.getItem('sh_teams_data');
-                        if (cachedT) {
-                            try { teamsData = JSON.parse(cachedT); } catch (e) {}
-                        }
-                        if (Object.keys(teamsData).length === 0) {
-                            await fetchTeamsData();
-                        }
-                    }
-                    if (filterSelect.options.length === 0) {
+                    const currentSelected = filterSelect.value;
+                    if (force || filterSelect.options.length <= 1) {
                         filterSelect.innerHTML = '<option value="" disabled selected>🔍 請選擇組別查看點名報告</option>';
                         filterSelect.add(new Option("🌟 查看所有組別 (所有成員)", "ALL"));
                         Object.keys(teamsData).sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b)).forEach(g => filterSelect.add(new Option(g, g)));
+                        if (currentSelected && [...filterSelect.options].some(o => o.value === currentSelected)) {
+                            filterSelect.value = currentSelected;
+                        }
                     }
                     if (r.includes('ADMIN') || r.includes('管理員')) {
                         createBonusSheetBtn?.classList.remove('hidden');

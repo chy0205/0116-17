@@ -27,7 +27,11 @@ function doGet(e) {
       case 'getHomeworkReport': return JSONResponse(getHomeworkReport(topic));
       case 'getUserHomeworkHistory': return JSONResponse(getUserHomeworkHistory(group, name));
       case 'getBonusStats': return JSONResponse(getBonusStats(e.parameter.sheetName));
-      case 'getTeamsData': return JSONResponse(getTeamsData());
+      case 'getTeamsData':
+        if (e.parameter.force === '1') {
+          removeFromCache("teams_data");
+        }
+        return JSONResponse(getTeamsData());
       case 'getRegionReport': return JSONResponse(getRegionReport());
       default: throw new Error("未定義的讀取動作: " + action);
     }
@@ -103,6 +107,30 @@ function removeFromCache(key) {
     const cache = CacheService.getScriptCache();
     cache.remove(key);
   } catch (e) {}
+}
+
+/**
+ * 試算表手動編輯自動觸發器 (Simple Trigger)
+ * 當使用者在 Google Sheets / EXCEL 上手動修改工作表時，自動清除對應快取
+ */
+function onEdit(e) {
+  try {
+    const sheet = e && e.range ? e.range.getSheet() : null;
+    if (sheet) {
+      const sheetName = sheet.getName();
+      if (sheetName === 'Users') {
+        removeFromCache("teams_data");
+      } else if (sheetName === 'HomeworkSettings') {
+        removeFromCache("hw_config");
+      } else if (sheetName === 'Locations') {
+        removeFromCache("locations_data");
+      } else if (sheetName === 'Bulletin') {
+        removeFromCache("announcements_data");
+      } else if (sheetName === 'Config') {
+        removeFromCache("sys_config");
+      }
+    }
+  } catch (err) {}
 }
 
 // ==========================================
