@@ -3,7 +3,7 @@
  * 已修復：getTeamsData 缺失問題、重複函式清理、全成員點名邏輯整合、操作日誌系統
  */
 
-const SPREADSHEET_ID = '1kH0IJ9i_PBw2vWPkv7LVKN33nTBhktIN1AFN-O694QU';
+const SPREADSHEET_ID = '1jKcMtTuI9icxriEf9SzTF25c5ryPFnhQGjM6XhLQk0E';
 
 /**
  * 處理 GET 請求：資料讀取
@@ -660,7 +660,7 @@ function handleSaveTransferRecord(p) {
 
 function getRegionReport() {
   try {
-    const targetSSId = '1NjvvSu8Kf_EDroG7lz31lOg5A2HFE_mLV0ofXMjldFc';
+    const targetSSId = '157JOJsLvrUlNVwZ93D4D0awO4KKIyM_G8sbXbKufuK4';
     const ss = SpreadsheetApp.openById(targetSSId);
     const sheet = ss.getSheetByName('區域');
     if (!sheet) return { success: false, error: '找不到工作表: 區域' };
